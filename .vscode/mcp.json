@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "radiosonde": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["bin/server.js"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
