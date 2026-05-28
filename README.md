@@ -4,7 +4,7 @@
 
 ```bash
 git clone <repo-url>
-cd windy-radiosonde-skill
+cd radiosonde-mcp-server
 npm install           # triggers postinstall → scrapes ~690 stations to ~/.cache/windy-radiosonde/stations.json
 ```
 
@@ -12,10 +12,10 @@ npm install           # triggers postinstall → scrapes ~690 stations to ~/.cac
 
 ```bash
 # Global (all projects):
-claude mcp add -s user radiosonde node /path/to/windy-radiosonde-skill/bin/server.js
+claude mcp add -s user radiosonde node /path/to/radiosonde-mcp-server/bin/server.js
 
 # Project-local only:
-claude mcp add radiosonde node /path/to/windy-radiosonde-skill/bin/server.js
+claude mcp add radiosonde node /path/to/radiosonde-mcp-server/bin/server.js
 ```
 
 Active in next Claude Code session. `mcpServers` is **not** a valid key in `~/.claude/settings.json` — use `claude mcp add` instead.
@@ -29,7 +29,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (restar
   "mcpServers": {
     "radiosonde": {
       "command": "node",
-      "args": ["/path/to/windy-radiosonde-skill/bin/server.js"]
+      "args": ["/path/to/radiosonde-mcp-server/bin/server.js"]
     }
   }
 }

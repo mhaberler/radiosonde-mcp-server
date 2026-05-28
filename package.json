@@ -1,10 +1,10 @@
 {
-  "name": "windy-radiosonde",
+  "name": "radiosonde-mcp-server",
   "version": "1.0.0",
   "description": "MCP server for Windy.com radiosonde station lookup and sounding retrieval",
   "type": "module",
   "bin": {
-    "windy-radiosonde": "./bin/server.js"
+    "radiosonde-mcp-server": "./bin/server.js"
   },
   "scripts": {
     "start": "node bin/server.js",
