@@ -67,6 +67,8 @@ This adds to each cache entry:
 
 The OurAirports CSV is cached at `~/.cache/windy-radiosonde/airports.csv`. Enrichment is idempotent — re-running skips stations already having a name and re-runs ICAO matching for all stations.
 
+A pre-enriched snapshot is included in the repo as `stations-example.json` (~690 stations with name, elevation, and ICAO where available) for reference and bootstrapping.
+
 ## Manual station refresh
 
 ```bash
