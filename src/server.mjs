@@ -1,36 +1,54 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { readFileSync } from 'fs';
+import { mkdirSync, readFileSync, statSync } from 'fs';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { z } from 'zod';
+import {
+  CACHE_DIR, CACHE_PATH, BASE_NODE, BASE_DL,
+  haversineKm, latLonToTile, tilePixelToLatLon, windyFetch, getDetail,
+} from '../lib/utils.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const STATIONS_PATH = join(__dir, 'untracked', 'stations.json');
-const BASE_NODE = 'https://node.windy.com/pois/v2/radiosonde';
-const BASE_DL = 'https://dl.windy.com/obs/measurement/v2/radiosonde';
+const SCRAPE_SCRIPT = join(__dir, 'scrape.mjs');
+const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// Load station index at startup (mutable — live probes can add entries)
-const stationsRaw = JSON.parse(readFileSync(STATIONS_PATH, 'utf8'));
+mkdirSync(CACHE_DIR, { recursive: true });
 
-const TILE_SIZE = 256;
-
-function latLonToTile(lat, lon, z) {
-  const n = Math.pow(2, z);
-  const x = Math.floor((lon + 180) / 360 * n);
-  const latR = lat * Math.PI / 180;
-  const y = Math.floor((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n);
-  return [x, y];
+// Load station index (mutable — live probes add entries at query time)
+let stationsRaw = {};
+try {
+  stationsRaw = JSON.parse(readFileSync(CACHE_PATH, 'utf8'));
+} catch {
+  console.error('[radiosonde] No station cache found — running initial scrape...');
 }
 
-function tilePixelToLatLon(zoom, tileCol, tileRow, pixX, pixY) {
-  const n = Math.pow(2, zoom);
-  const lon = ((tileCol + pixX / TILE_SIZE) / n) * 360 - 180;
-  const latR = Math.atan(Math.sinh(Math.PI * (1 - 2 * (tileRow + pixY / TILE_SIZE) / n)));
-  return { lat: +(latR * 180 / Math.PI).toFixed(6), lon: +lon.toFixed(6) };
+// Background rescrape if cache is missing or stale
+function triggerRescrapeIfNeeded() {
+  let stale = Object.keys(stationsRaw).length === 0;
+  if (!stale) {
+    try {
+      const age = Date.now() - statSync(CACHE_PATH).mtimeMs;
+      if (age > CACHE_MAX_AGE_MS) stale = true;
+    } catch { stale = true; }
+  }
+  if (!stale) return;
+  console.error('[radiosonde] Station cache stale or missing — refreshing in background...');
+  const child = spawn(process.execPath, [SCRAPE_SCRIPT], { stdio: ['ignore', 'ignore', 'inherit'] });
+  child.on('exit', (code) => {
+    if (code === 0) {
+      try {
+        stationsRaw = JSON.parse(readFileSync(CACHE_PATH, 'utf8'));
+        console.error(`[radiosonde] Cache refreshed: ${Object.keys(stationsRaw).length} stations`);
+      } catch {}
+    }
+  });
 }
 
-// Probe live tile at z6 for a lat/lon, merging any new stations into stationsRaw
+triggerRescrapeIfNeeded();
+
+// Probe live z6 tile, merging newly-active stations into stationsRaw
 async function probeLiveTile(lat, lon) {
   const [tx, ty] = latLonToTile(lat, lon, 6);
   try {
@@ -40,33 +58,13 @@ async function probeLiveTile(lat, lon) {
     const ids = data.id || [];
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i];
-      if (id && !stationsRaw[id]) {
+      if (id && !stationsRaw[id])
         stationsRaw[id] = tilePixelToLatLon(6, tx, ty, data.tileX?.[i] ?? 0, data.tileY?.[i] ?? 0);
-      }
     }
   } catch {}
 }
 
-function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-async function windyFetch(url) {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`HTTP ${r.status} from ${url}`);
-  return r.json();
-}
-
-async function getDetail(id) {
-  return windyFetch(`${BASE_NODE}/${id}?pr=0&sc=0&token2=pending`);
-}
-
-// ── server ────────────────────────────────────────────────────────────────────
+// ── MCP server ────────────────────────────────────────────────────────────────
 
 const server = new McpServer({ name: 'radiosonde', version: '1.0.0' });
 
@@ -80,7 +78,6 @@ server.tool(
     limit: z.number().int().default(10).describe('Max stations to return'),
   },
   async ({ lat, lon, radius_km, limit }) => {
-    // Always probe live tile at the search center to catch recently-active stations
     await probeLiveTile(lat, lon);
 
     const results = Object.entries(stationsRaw)
@@ -89,11 +86,9 @@ server.tool(
       .sort((a, b) => a.dist - b.dist)
       .slice(0, limit);
 
-    if (results.length === 0) {
+    if (results.length === 0)
       return { content: [{ type: 'text', text: `No stations within ${radius_km} km of (${lat}, ${lon})` }] };
-    }
 
-    // Fetch names in parallel (detail API)
     const withNames = await Promise.all(results.map(async s => {
       try {
         const d = await getDetail(s.id);
@@ -165,30 +160,28 @@ server.tool(
       format = latest.format;
     }
 
-    const url = `${BASE_DL}/${station_id}/download?time=${t}&format=${format}`;
-    const sounding = await windyFetch(url);
-
-    const meta = {
-      station_id,
-      time_ms: t,
-      time_utc: new Date(t).toISOString(),
-      format,
-      level_count: sounding.features?.length ?? 0,
-      station_name: sounding.properties?.station_name,
-      elevation_m: sounding.properties?.elevation,
-      lat: sounding.properties?.lat,
-      lon: sounding.properties?.lon,
-    };
+    const sounding = await windyFetch(`${BASE_DL}/${station_id}/download?time=${t}&format=${format}`);
 
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify({ meta, sounding }, null, 2),
+        text: JSON.stringify({
+          meta: {
+            station_id,
+            time_ms: t,
+            time_utc: new Date(t).toISOString(),
+            format,
+            level_count: sounding.features?.length ?? 0,
+            station_name: sounding.properties?.station_name,
+            elevation_m: sounding.properties?.elevation,
+            lat: sounding.properties?.lat,
+            lon: sounding.properties?.lon,
+          },
+          sounding,
+        }, null, 2),
       }],
     };
   },
 );
-
-// ── start ─────────────────────────────────────────────────────────────────────
 
 await server.connect(new StdioServerTransport());

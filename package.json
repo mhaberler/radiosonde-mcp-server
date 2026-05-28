@@ -1,17 +1,20 @@
 {
-  "name": "windy-radiosonde-skill",
+  "name": "windy-radiosonde",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "description": "MCP server for Windy.com radiosonde station lookup and sounding retrieval",
   "type": "module",
+  "bin": {
+    "windy-radiosonde": "./bin/server.js"
+  },
+  "scripts": {
+    "start": "node bin/server.js",
+    "setup": "node src/scrape.mjs",
+    "postinstall": "node src/scrape.mjs"
+  },
+  "keywords": ["mcp", "radiosonde", "windy", "weather", "sounding"],
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "playwright": "^1.60.0"
+    "zod": "^3.24.0"
   }
 }
