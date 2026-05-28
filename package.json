@@ -12,10 +12,18 @@
     "enrich": "node src/enrich.mjs",
     "postinstall": "node src/scrape.mjs"
   },
-  "keywords": ["mcp", "radiosonde", "windy", "weather", "sounding"],
+  "keywords": [
+    "mcp",
+    "radiosonde",
+    "windy",
+    "weather",
+    "sounding"
+  ],
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "meteojs": "^1.17.3",
+    "regenerator-runtime": "^0.14.1",
     "zod": "^3.24.0"
   }
 }
