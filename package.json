@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node bin/server.js",
     "setup": "node src/scrape.mjs",
+    "enrich": "node src/enrich.mjs",
     "postinstall": "node src/scrape.mjs"
   },
   "keywords": ["mcp", "radiosonde", "windy", "weather", "sounding"],

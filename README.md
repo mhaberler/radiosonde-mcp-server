@@ -38,31 +38,51 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (restar
 ## MCP tools
 
 **`find_stations(lat, lon, radius_km, limit)`**
-Find stations near a location. Always probes live tile to catch stations that launched after last scrape.
+Find stations near a location. Always probes live tile to catch stations that launched after last scrape. Returns `name`, `wmo_id`, and `icao` when available in the enriched cache.
 
 **`get_station_detail(station_id)`**
-Name, elevation, last 2 ascent timestamps.
+Name, elevation, `wmo_id`, `icao`, and last 2 ascent timestamps.
 
 **`get_sounding(station_id, time_ms?, format?)`**
-GeoJSON FeatureCollection, ~190 vertical levels. Properties per level: `gpheight` (m), `temp` (K), `dewpoint` (K), `pressure` (hPa), `wind_u`/`wind_v` (m/s).
+GeoJSON FeatureCollection, ~190 vertical levels. Properties per level: `gpheight` (m), `temp` (K), `dewpoint` (K), `pressure` (hPa), `wind_u`/`wind_v` (m/s). Meta block includes `wmo_id` and `icao` when known.
+
+## Station cache enrichment
+
+After the initial scrape, run enrichment to add human-readable names and ICAO airport codes:
+
+```bash
+npm run enrich
+# or: node src/enrich.mjs
+```
+
+This adds to each cache entry:
+
+- `name` — station name from Windy (e.g. `"Wien/Hohe Warte"`)
+- `elevation_m` — elevation in metres
+- `icao` — nearest ICAO airport code within 10 km (sourced from OurAirports, 4-letter codes only), if applicable
+- `wmo_id` — WMO numeric ID, populated lazily the first time a sounding is retrieved for that station
+
+The OurAirports CSV is cached at `~/.cache/windy-radiosonde/airports.csv`. Enrichment is idempotent — re-running skips stations already having a name and re-runs ICAO matching for all stations.
 
 ## Manual station refresh
 
 ```bash
 node src/scrape.mjs          # re-scrape live tiles → ~/.cache/windy-radiosonde/stations.json
 node src/scrape-igra.mjs     # cross-reference IGRA2 registry (run after scrape.mjs)
+npm run enrich               # enrich with names, ICAO codes (run after scrape)
 ```
 
 The server auto-refreshes the cache in the background on startup if it is older than 7 days.
 
 ## Repo layout
 
-```
+```text
 bin/server.js          # entry point (chmod +x, bin field in package.json)
 src/
   server.mjs           # MCP server — 3 tools, stdio transport
   scrape.mjs           # tile scraper (zoom 4+5+6, ~690 active stations)
   scrape-igra.mjs      # IGRA2 enrichment scraper
+  enrich.mjs           # enriches cache with name, wmo_id, ICAO from Windy + OurAirports
 lib/
   utils.mjs            # shared: haversine, tile math, windyFetch, CACHE_PATH
 ```
@@ -71,11 +91,12 @@ lib/
 
 ### Tile API (station locations)
 
-```
+```text
 GET node.windy.com/pois/v2/{layer}/tiles/{z}/{x}/{y}?pr=0&sc=0&token2=pending
 ```
 
 Response — parallel arrays:
+
 ```json
 {"id":["abc123"], "tileX":[197], "tileY":[268], "time":[1779926400000], "type":["wmo"], "format":["fm94"]}
 ```
@@ -86,7 +107,7 @@ Zoom 6 (64×64 = 4096 tiles) is the sweet spot — no clustering, complete cover
 
 ### Station detail API
 
-```
+```text
 GET node.windy.com/pois/v2/radiosonde/{id}?pr=0&sc=0&token2=pending
 ```
 
@@ -94,7 +115,7 @@ Returns: `id`, `name`, `lat`, `lon`, `elevation`, `lastAscents: [{format, time}]
 
 ### Sounding download API
 
-```
+```text
 GET dl.windy.com/obs/measurement/v2/radiosonde/{id}/download?time={ms}&format=fm94
 ```
 

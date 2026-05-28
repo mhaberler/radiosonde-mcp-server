@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { mkdirSync, readFileSync, statSync } from 'fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -90,8 +90,11 @@ server.tool(
       return { content: [{ type: 'text', text: `No stations within ${radius_km} km of (${lat}, ${lon})` }] };
 
     const withNames = await Promise.all(results.map(async s => {
+      const cached = stationsRaw[s.id];
+      if (cached?.name) return { ...s, name: cached.name, elevation: cached.elevation_m ?? null };
       try {
         const d = await getDetail(s.id);
+        stationsRaw[s.id] = { ...cached, name: d.name, elevation_m: d.elevation, lat: d.lat ?? s.lat, lon: d.lon ?? s.lon };
         return { ...s, name: d.name, elevation: d.elevation };
       } catch {
         return { ...s, name: s.id, elevation: null };
@@ -108,6 +111,8 @@ server.tool(
           lon: s.lon,
           elevation_m: s.elevation,
           distance_km: +s.dist.toFixed(1),
+          ...(stationsRaw[s.id]?.wmo_id ? { wmo_id: stationsRaw[s.id].wmo_id } : {}),
+          ...(stationsRaw[s.id]?.icao   ? { icao:   stationsRaw[s.id].icao   } : {}),
         })), null, 2),
       }],
     };
@@ -122,6 +127,7 @@ server.tool(
   },
   async ({ station_id }) => {
     const d = await getDetail(station_id);
+    const cached = stationsRaw[station_id] ?? {};
     return {
       content: [{
         type: 'text',
@@ -131,6 +137,8 @@ server.tool(
           lat: d.lat,
           lon: d.lon,
           elevation_m: d.elevation,
+          ...(cached.wmo_id ? { wmo_id: cached.wmo_id } : {}),
+          ...(cached.icao   ? { icao:   cached.icao   } : {}),
           lastAscents: (d.lastAscents || []).map(a => ({
             format: a.format,
             time_ms: a.time,
@@ -162,6 +170,13 @@ server.tool(
 
     const sounding = await windyFetch(`${BASE_DL}/${station_id}/download?time=${t}&format=${format}`);
 
+    // Persist wmo_id lazily from sounding metadata
+    const wmoId = sounding.properties?.station_id;
+    if (wmoId && stationsRaw[station_id] && !stationsRaw[station_id].wmo_id) {
+      stationsRaw[station_id].wmo_id = wmoId;
+      try { writeFileSync(CACHE_PATH, JSON.stringify(stationsRaw, null, 2)); } catch {}
+    }
+
     return {
       content: [{
         type: 'text',
@@ -176,6 +191,8 @@ server.tool(
             elevation_m: sounding.properties?.elevation,
             lat: sounding.properties?.lat,
             lon: sounding.properties?.lon,
+            ...(wmoId ? { wmo_id: wmoId } : {}),
+            ...(stationsRaw[station_id]?.icao ? { icao: stationsRaw[station_id].icao } : {}),
           },
           sounding,
         }, null, 2),
