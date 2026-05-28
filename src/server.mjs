@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { z } from 'zod';
 import {
-  CACHE_DIR, CACHE_PATH, BASE_NODE, BASE_DL,
+  CACHE_DIR, CACHE_PATH, BASE_NODE, BASE_DL, BASE_OBS,
   haversineKm, latLonToTile, tilePixelToLatLon, windyFetch, getDetail,
 } from '../lib/utils.mjs';
 
@@ -196,6 +196,30 @@ server.tool(
           },
           sounding,
         }, null, 2),
+      }],
+    };
+  },
+);
+
+server.tool(
+  'list_ascents',
+  'List available radiosonde ascents for a station (up to ~14 days of history).',
+  {
+    station_id: z.string().describe('Station ID from find_stations'),
+  },
+  async ({ station_id }) => {
+    // obs endpoint returns history array with all available ascents (~14 days)
+    const data = await windyFetch(`${BASE_OBS}/${station_id}/1/1?pr=0&sc=0&token2=pending`);
+    const history = data.history ?? [];
+    const ascents = history.map(a => ({
+      time_ms: a.time,
+      time_utc: new Date(a.time).toISOString(),
+      format: a.format,
+    }));
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({ station_id, count: ascents.length, ascents }, null, 2),
       }],
     };
   },

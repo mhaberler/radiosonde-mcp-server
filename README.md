@@ -43,6 +43,9 @@ Find stations near a location. Always probes live tile to catch stations that la
 **`get_station_detail(station_id)`**
 Name, elevation, `wmo_id`, `icao`, and last 2 ascent timestamps.
 
+**`list_ascents(station_id)`**
+List all available ascents for a station (~14 days of history). Returns array of `{time_ms, time_utc, format}`. Use `time_ms` values with `get_sounding`.
+
 **`get_sounding(station_id, time_ms?, format?)`**
 GeoJSON FeatureCollection, ~190 vertical levels. Properties per level: `gpheight` (m), `temp` (K), `dewpoint` (K), `pressure` (hPa), `wind_u`/`wind_v` (m/s). Meta block includes `wmo_id` and `icao` when known.
 
@@ -120,6 +123,14 @@ GET dl.windy.com/obs/measurement/v2/radiosonde/{id}/download?time={ms}&format=fm
 ```
 
 GeoJSON FeatureCollection, one Feature per vertical level (~190 levels). `token2=pending` works for all public stations.
+
+### Ascent history API
+
+```text
+GET node.windy.com/obs/measurement/v2/radiosonde/{windy_id}/1/1
+```
+
+Returns latest sounding data plus a `history` array of `{time, format}` for all available ascents (~14 days). Path segments: `1` = fm94 format, `1` = count (1 sounding). The `history` field always contains the full available list regardless of count.
 
 ## Key insight: live-only tile API
 
