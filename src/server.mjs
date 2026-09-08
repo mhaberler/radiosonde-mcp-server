@@ -80,11 +80,28 @@ server.tool(
   async ({ lat, lon, radius_km, limit }) => {
     await probeLiveTile(lat, lon);
 
-    const results = Object.entries(stationsRaw)
+    const candidates = Object.entries(stationsRaw)
       .map(([id, s]) => ({ id, lat: s.lat, lon: s.lon, dist: haversineKm(lat, lon, s.lat, s.lon) }))
       .filter(s => s.dist <= radius_km)
-      .sort((a, b) => a.dist - b.dist)
-      .slice(0, limit);
+      .sort((a, b) => a.dist - b.dist);
+
+    // Windy sometimes exposes the same physical station under two ids — an
+    // opaque internal id (enriched cache) and a plain WMO-numeric id (tile
+    // probe). Only the WMO-numeric id works against the obs history endpoint,
+    // so when two candidates sit within DEDUPE_KM of each other, keep the
+    // numeric one.
+    const DEDUPE_KM = 5;
+    const deduped = [];
+    for (const c of candidates) {
+      const dupIdx = deduped.findIndex(d => haversineKm(c.lat, c.lon, d.lat, d.lon) <= DEDUPE_KM);
+      if (dupIdx === -1) {
+        deduped.push(c);
+      } else if (/^\d+$/.test(c.id) && !/^\d+$/.test(deduped[dupIdx].id)) {
+        deduped[dupIdx] = c;
+      }
+    }
+
+    const results = deduped.slice(0, limit);
 
     if (results.length === 0)
       return { content: [{ type: 'text', text: `No stations within ${radius_km} km of (${lat}, ${lon})` }] };
